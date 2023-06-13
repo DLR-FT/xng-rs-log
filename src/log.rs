@@ -14,16 +14,20 @@ impl Log for XalLogger {
 
     fn log(&self, record: &Record) {
         let mut writer = XalWriter;
-        _ = core::write!(
-            &mut writer,
-            "{}: {} {}\n",
-            record.target(),
-            ColourLogLevel::from(record.level()),
-            record.args(),
-        );
+        write(&mut writer, record).unwrap();
     }
 
     fn flush(&self) {}
+}
+
+fn write(writer: &mut impl Write, record: &Record) -> Result<(), core::fmt::Error> {
+    core::writeln!(
+        writer,
+        "{}: {} {}",
+        record.target(),
+        ColourLogLevel::from(record.level()),
+        record.args(),
+    )
 }
 
 pub struct XalWriter;
@@ -73,11 +77,56 @@ impl Display for ColourLogLevel {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "\n{}{}{}{}",
+            "{}{}{}{}",
             Self::RESET_COLOUR,
             self.as_colour_code(),
             self.0,
             Self::RESET_COLOUR
         )
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use core::fmt::Write;
+    use heapless::String;
+
+    #[derive(Default)]
+    struct TestWriter {
+        test_output: String<100>,
+    }
+
+    impl Write for TestWriter {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
+            for c in s.chars() {
+                self.test_output.push(c).unwrap();
+            }
+            Ok(())
+        }
+
+        fn write_char(&mut self, c: char) -> core::fmt::Result {
+            self.test_output.push(c).unwrap();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn format() {
+        let mut writer = TestWriter::default();
+        let args = format_args!("test");
+        let record = Record::builder()
+            .level(log::Level::Info)
+            .target("partition")
+            .file(Some("main.rs"))
+            .line(Some(33))
+            .args(args)
+            .build();
+        assert!(write(&mut writer, &record).is_ok());
+        assert_eq!(
+            writer.test_output,
+            "partition: \u{1b}[39m\u{1b}[32mINFO\u{1b}[39m test\n",
+        );
     }
 }
